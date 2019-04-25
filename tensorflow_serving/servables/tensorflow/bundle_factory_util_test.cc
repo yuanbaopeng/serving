@@ -23,8 +23,8 @@ limitations under the License.
 #include "google/protobuf/wrappers.pb.h"
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include "tensorflow/contrib/batching/shared_batch_scheduler.h"
 #include "tensorflow/contrib/session_bundle/session_bundle.h"
+#include "tensorflow/core/kernels/batching_util/shared_batch_scheduler.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
 #include "tensorflow/core/lib/io/path.h"
@@ -43,10 +43,11 @@ namespace tensorflow {
 namespace serving {
 namespace {
 
+using test_util::EqualsProto;
 using ::testing::_;
+using ::testing::DoAll;
 using ::testing::Return;
 using ::testing::SetArgPointee;
-using test_util::EqualsProto;
 using Batcher = SharedBatchScheduler<BatchingSessionTask>;
 
 class BundleFactoryUtilTest : public ::testing::Test {

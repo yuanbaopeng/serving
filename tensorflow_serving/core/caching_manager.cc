@@ -40,6 +40,7 @@ Status CachingManager::Create(
   basic_manager_options.max_num_load_retries = options.max_num_load_retries;
   basic_manager_options.load_retry_interval_micros =
       options.load_retry_interval_micros;
+  basic_manager_options.env = options.env;
   basic_manager_options.servable_event_bus = options.servable_event_bus;
 
   // Create a basic manager and use it to construct the caching manager.
@@ -68,8 +69,10 @@ Status CachingManager::GetUntypedServableHandle(
   }
   // Since there is no explicit version in the request, get the latest from the
   // loader-factory.
-  const int64 latest_version = loader_factory_->GetLatestVersion(request.name);
-  return GetUntypedServableHandleForId({request.name, latest_version}, handle);
+  const int64 policy_dictated_version = loader_factory_->GetServableVersion(
+      request.name, request.auto_version_policy);
+  return GetUntypedServableHandleForId({request.name, policy_dictated_version},
+                                       handle);
 }
 
 Status CachingManager::GetUntypedServableHandleForId(
@@ -211,8 +214,9 @@ ServableData<std::unique_ptr<Loader>> PathPrefixLoaderFactory::CreateLoader(
   return adapter_->AdaptOneVersion({id, servable_path});
 }
 
-int64 PathPrefixLoaderFactory::GetLatestVersion(
-    const string& servable_name) const {
+int64 PathPrefixLoaderFactory::GetServableVersion(
+    const string& servable_name,
+    ServableRequest::AutoVersionPolicy policy) const {
   return 0;
 }
 

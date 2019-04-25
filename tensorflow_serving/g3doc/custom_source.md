@@ -23,11 +23,12 @@ loaders directly.
 Of course, whatever kind of data your source emits (whether it is POSIX paths,
 Google Cloud Storage paths, or RPC handles), there needs to be accompanying
 module(s) that are able to load servables based on that. Such modules are called
-`SourceAdapters`. Creating a custom one is described in the [Custom
-Servable](custom_servable.md) document. TensorFlow Serving comes with one for
-instantiating TensorFlow sessions based on paths in file systems that TensorFlow
-supports. One can add support for additional file systems to TensorFlow by
-extending the `RandomAccessFile` abstraction (`tensorflow/core/public/env.h`).
+`SourceAdapters`. Creating a custom one is described in the
+[Custom Servable](custom_servable.md) document. TensorFlow Serving
+comes with one for instantiating TensorFlow sessions based on paths
+in file systems that TensorFlow supports. One can add support for
+additional file systems to TensorFlow by extending the `RandomAccessFile`
+abstraction (`tensorflow/core/public/env.h`).
 
 This document focuses on creating a source that emits paths in a
 TensorFlow-supported file system. It ends with a walk-through of how to use your
@@ -55,7 +56,8 @@ loaded.
 simple way: it periodically inspects the file system (doing an `ls`,
 essentially), and if it finds one or more paths that look like servable
 versions it determines which one is the latest version and invokes the callback
-with a list of size one containing just that version. So, at any given time
+with a list of size one containing just that version
+(under the default configuration). So, at any given time
 `FileSystemStoragePathSource` requests at most one servable to be loaded, and
 its implementation takes advantage of the idempotence of the callback to keep
 itself stateless (there is no harm in invoking the callback repeatedly with the
@@ -92,26 +94,26 @@ the main code flow (with bad error handling; real code should be more careful):
 
 First, create a manager:
 
-~~~c++
+```c++
 std::unique_ptr<AspiredVersionsManager> manager = ...;
-~~~
+```
 
 Then, create a `SavedModelBundle` source adapter and plug it into the manager:
 
-~~~c++
+```c++
 std::unique_ptr<SavedModelBundleSourceAdapter> bundle_adapter;
 SessionBundleSourceAdapterConfig config;
 // ... populate 'config' with TensorFlow options.
 TF_CHECK_OK(SavedModelBundleSourceAdapter::Create(config, &bundle_adapter));
 ConnectSourceToTarget(bundle_adapter.get(), manager.get());
-~~~
+```
 
 Lastly, create your path source and plug it into the `SavedModelBundle` adapter:
 
-~~~c++
+```c++
 auto your_source = new YourPathSource(...);
 ConnectSourceToTarget(your_source, bundle_adapter.get());
-~~~
+```
 
 The `ConnectSourceToTarget()` function (defined in `core/target.h`) merely
 invokes `SetAspiredVersionsCallback()` to connect a `Source<T>` to a

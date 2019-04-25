@@ -24,6 +24,7 @@ limitations under the License.
 #include "tensorflow_serving/apis/classifier.h"
 #include "tensorflow_serving/core/servable_handle.h"
 #include "tensorflow_serving/servables/tensorflow/classifier.h"
+#include "tensorflow_serving/servables/tensorflow/util.h"
 
 namespace tensorflow {
 namespace serving {
@@ -31,26 +32,27 @@ namespace serving {
 Status TensorflowClassificationServiceImpl::Classify(
     const RunOptions& run_options, ServerCore* core,
     const ClassificationRequest& request, ClassificationResponse* response) {
-  TRACELITERAL("TensorflowClassificationServiceImpl::Classify");
   // Verify Request Metadata and create a ServableRequest
   if (!request.has_model_spec()) {
     return tensorflow::Status(tensorflow::error::INVALID_ARGUMENT,
                               "Missing ModelSpec");
   }
 
-  ServableHandle<SavedModelBundle> saved_model_bundle;
-  TF_RETURN_IF_ERROR(
-      core->GetServableHandle(request.model_spec(), &saved_model_bundle));
-  SignatureDef signature;
-  TF_RETURN_IF_ERROR(GetClassificationSignatureDef(
-      request.model_spec(), saved_model_bundle->meta_graph_def, &signature));
+  return ClassifyWithModelSpec(run_options, core, request.model_spec(), request,
+                               response);
+}
 
-  std::unique_ptr<ClassifierInterface> classifier_interface;
-  TF_RETURN_IF_ERROR(CreateFlyweightTensorFlowClassifier(
-      run_options, saved_model_bundle->session.get(), &signature,
-      &classifier_interface));
-  // Run classification.
-  return classifier_interface->Classify(request, response->mutable_result());
+Status TensorflowClassificationServiceImpl::ClassifyWithModelSpec(
+    const RunOptions& run_options, ServerCore* core,
+    const ModelSpec& model_spec, const ClassificationRequest& request,
+    ClassificationResponse* response) {
+  TRACELITERAL("TensorflowClassificationServiceImpl::ClassifyWithModelSpec");
+
+  ServableHandle<SavedModelBundle> saved_model_bundle;
+  TF_RETURN_IF_ERROR(core->GetServableHandle(model_spec, &saved_model_bundle));
+  return RunClassify(run_options, saved_model_bundle->meta_graph_def,
+                     saved_model_bundle.id().version,
+                     saved_model_bundle->session.get(), request, response);
 }
 
 }  // namespace serving

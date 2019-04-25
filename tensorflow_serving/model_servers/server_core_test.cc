@@ -16,8 +16,13 @@ limitations under the License.
 #include "tensorflow_serving/model_servers/server_core.h"
 
 #include "google/protobuf/any.pb.h"
+#include "tensorflow/cc/saved_model/tag_constants.h"
+#include "tensorflow/core/lib/core/error_codes.pb.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
+#include "tensorflow/core/lib/io/path.h"
+#include "tensorflow/core/lib/random/random.h"
+#include "tensorflow/core/lib/strings/stringprintf.h"
 #include "tensorflow_serving/apis/model.pb.h"
 #include "tensorflow_serving/apis/predict.pb.h"
 #include "tensorflow_serving/core/servable_handle.h"
@@ -38,8 +43,22 @@ namespace {
 
 using ::testing::_;
 using ::testing::Invoke;
+using ::testing::MockFunction;
 using ::testing::NiceMock;
 using test_util::ServerCoreTest;
+
+TEST_P(ServerCoreTest, PreLoadHook) {
+  std::unique_ptr<ServerCore> server_core;
+  ServerCore::Options options = GetDefaultOptions();
+  MockFunction<void(const ServableId&)> mock_pre_load_hook;
+  options.pre_load_hook = mock_pre_load_hook.AsStdFunction();
+  options.model_server_config = GetTestModelServerConfigForFakePlatform();
+
+  const ServableId expected_id = {test_util::kTestModelName,
+                                  test_util::kTestModelVersion};
+  EXPECT_CALL(mock_pre_load_hook, Call(expected_id));
+  TF_ASSERT_OK(ServerCore::Create(std::move(options), &server_core));
+}
 
 TEST_P(ServerCoreTest, CreateWaitsTillModelsAvailable) {
   std::unique_ptr<ServerCore> server_core;
@@ -165,6 +184,103 @@ TEST_P(ServerCoreTest, ReloadConfigChangeModelBasePath) {
            available_servables.at(0).version != test_util::kTestModelVersion);
 }
 
+class RelativePathsServerCoreTest : public ServerCoreTest {
+ protected:
+  // Creates a ModelServerConfig instance where the directory name has
+  // been stripped off the ModelConfig::base_path.  Instead that prefix
+  // can be supplied via the Options::model_config_list_root_dir.
+  ModelServerConfig GetTestModelServerConfigWithRelativePath(
+      string* optional_config_list_root_dir = nullptr) {
+    using ::tensorflow::io::Basename;
+    using ::tensorflow::io::Dirname;
+
+    ModelServerConfig result = GetTestModelServerConfigForFakePlatform();
+    const string model_name = result.model_config_list().config(0).name();
+
+    ModelConfig& relative =
+        *result.mutable_model_config_list()->mutable_config(0);
+    relative.set_name(strings::StrCat(model_name, "_relative"));
+    const string dirname(Dirname(relative.base_path()));
+    const string basename(Basename(relative.base_path()));
+    CHECK(!dirname.empty());
+    CHECK(!basename.empty());
+    relative.set_base_path(basename);
+
+    if (optional_config_list_root_dir) {
+      *optional_config_list_root_dir = dirname;
+    }
+
+    return result;
+  }
+};
+
+TEST_P(RelativePathsServerCoreTest, AbsolutePathSucceeds) {
+  std::unique_ptr<ServerCore> server_core;
+  ModelServerConfig absolute = GetTestModelServerConfigForFakePlatform();
+  TF_ASSERT_OK(CreateServerCore(absolute, &server_core));
+}
+
+TEST_P(RelativePathsServerCoreTest, RelativePathFails) {
+  std::unique_ptr<ServerCore> server_core;
+  ModelServerConfig relative = GetTestModelServerConfigWithRelativePath();
+  EXPECT_EQ(error::INVALID_ARGUMENT,
+            CreateServerCore(relative, &server_core).code());
+}
+
+TEST_P(RelativePathsServerCoreTest,
+       AbsoluteAndRelativePathsWithOptionsSucceed) {
+  std::unique_ptr<ServerCore> server_core;
+  ModelServerConfig absolute_and_relative;
+  ModelServerConfig absolute = GetTestModelServerConfigForFakePlatform();
+  ServerCore::Options options = GetDefaultOptions();
+  {
+    string model_config_list_root_dir;
+    ModelServerConfig relative =
+        GetTestModelServerConfigWithRelativePath(&model_config_list_root_dir);
+    // Add the absolute and relative config to absolute. We'll check that both
+    // paths can be interleaved in the same model config list.
+    CHECK_GT(relative.model_config_list().config_size(), 0);
+    CHECK_GT(absolute.model_config_list().config_size(), 0);
+    *absolute_and_relative.mutable_model_config_list()->add_config() =
+        absolute.model_config_list().config(0);
+    *absolute_and_relative.mutable_model_config_list()->add_config() =
+        relative.model_config_list().config(0);
+    options.model_config_list_root_dir = std::move(model_config_list_root_dir);
+  }
+  TF_ASSERT_OK(CreateServerCore(absolute_and_relative, std::move(options),
+                                &server_core));
+}
+
+TEST_P(RelativePathsServerCoreTest, AbsolutePathWithEmptyPathFails) {
+  std::unique_ptr<ServerCore> server_core;
+  ModelServerConfig absolute = GetTestModelServerConfigForFakePlatform();
+  ServerCore::Options options = GetDefaultOptions();
+  options.model_config_list_root_dir = "";  // This should fail IsAbsolutePath.
+  EXPECT_EQ(
+      error::INVALID_ARGUMENT,
+      CreateServerCore(absolute, std::move(options), &server_core).code());
+}
+
+TEST_P(RelativePathsServerCoreTest, RelativePathWithOptionsSucceeds) {
+  std::unique_ptr<ServerCore> server_core;
+  ServerCore::Options options = GetDefaultOptions();
+  string model_config_list_root_dir;
+  ModelServerConfig relative =
+      GetTestModelServerConfigWithRelativePath(&model_config_list_root_dir);
+  options.model_config_list_root_dir = std::move(model_config_list_root_dir);
+  TF_ASSERT_OK(CreateServerCore(relative, std::move(options), &server_core));
+}
+
+TEST_P(RelativePathsServerCoreTest, MixedAbsoluteRelativeFails) {
+  std::unique_ptr<ServerCore> server_core;
+  ModelServerConfig mixed = GetTestModelServerConfigForFakePlatform();
+  const ModelServerConfig relative = GetTestModelServerConfigWithRelativePath();
+  *mixed.mutable_model_config_list()->add_config() =
+      relative.model_config_list().config(0);
+  EXPECT_EQ(error::INVALID_ARGUMENT,
+            CreateServerCore(mixed, &server_core).code());
+}
+
 TEST_P(ServerCoreTest, ErroringModel) {
   ServerCore::Options options = GetDefaultOptions();
   test_util::StoragePathErrorInjectingSourceAdapterConfig source_adapter_config;
@@ -179,7 +295,7 @@ TEST_P(ServerCoreTest, ErroringModel) {
   Status status = ServerCore::Create(std::move(options), &server_core);
   EXPECT_FALSE(status.ok());
   EXPECT_THAT(status.ToString(),
-              ::testing::HasSubstr("Some models did not become available"));
+              ::testing::HasSubstr("1 servable(s) did not become available"));
 }
 
 TEST_P(ServerCoreTest, IllegalReconfigurationToCustomConfig) {
@@ -256,8 +372,24 @@ TEST_P(ServerCoreTest, UnknownModelPlatform) {
 
 // Creates a model name that incorporates 'platform'. Useful for tests that have
 // one model for a given platform.
+//
+// The model names contain a random element, to vary the model name sort order
+// independently from the platform name order. This is to get regression
+// coverage of b/65363800. If called twice for a given platform, always returns
+// the same model name.
 string ModelNameForPlatform(const string& platform) {
-  return strings::StrCat("model_for_", platform);
+  static std::map<string, string>* platform_to_model_map = [] {
+    return new std::map<string, string>();
+  }();
+  auto it = platform_to_model_map->find(platform);
+  if (it != platform_to_model_map->end()) {
+    return it->second;
+  }
+  const string random = strings::Printf("%llu", random::New64());
+  const string model_name =
+      strings::StrCat("model_", random, "_for_", platform);
+  (*platform_to_model_map)[platform] = model_name;
+  return model_name;
 }
 
 // Builds a ModelSpec with a model named 'ModelNameForPlatform(platform)' and
@@ -310,8 +442,9 @@ string ServableDataForPlatform(const string& root_path, const string& platform,
 }
 
 TEST_P(ServerCoreTest, MultiplePlatforms) {
-  const string root_path = io::JoinPath(
-      testing::TmpDir(), strings::StrCat("MultiplePlatforms_", GetTestType()));
+  const string root_path =
+      io::JoinPath(testing::TmpDir(),
+                   strings::StrCat("MultiplePlatforms_", GetNameForTestCase()));
   TF_ASSERT_OK(Env::Default()->CreateDir(root_path));
 
   // Create a ServerCore with two platforms, and one model for each platform.
@@ -344,8 +477,8 @@ TEST_P(ServerCoreTest, MultiplePlatforms) {
 
 TEST_P(ServerCoreTest, MultiplePlatformsWithConfigChange) {
   const string root_path = io::JoinPath(
-      testing::TmpDir(),
-      strings::StrCat("MultiplePlatformsWithConfigChange_", GetTestType()));
+      testing::TmpDir(), strings::StrCat("MultiplePlatformsWithConfigChange_",
+                                         GetNameForTestCase()));
   TF_ASSERT_OK(Env::Default()->CreateDir(root_path));
 
   // Create config for three platforms, and one model per platform.
@@ -407,7 +540,7 @@ TEST_P(ServerCoreTest, MultiplePlatformsWithConfigChange) {
 TEST_P(ServerCoreTest, IllegalToChangeModelPlatform) {
   const string root_path = io::JoinPath(
       testing::TmpDir(),
-      strings::StrCat("IllegalToChangeModelPlatform_", GetTestType()));
+      strings::StrCat("IllegalToChangeModelPlatform_", GetNameForTestCase()));
   TF_ASSERT_OK(Env::Default()->CreateDir(root_path));
 
   ServerCore::Options options = GetDefaultOptions();
@@ -458,9 +591,10 @@ TEST_P(ServerCoreTest, RequestLoggingOn) {
         const string& filename_prefix =
             logging_config.log_collector_config().filename_prefix();
         log_collector_map[filename_prefix] = new FakeLogCollector();
+        const std::vector<string>& tags = {kSavedModelTagServe};
         auto mock_request_logger = std::unique_ptr<NiceMock<MockRequestLogger>>(
             new NiceMock<MockRequestLogger>(
-                logging_config, log_collector_map[filename_prefix]));
+                logging_config, tags, log_collector_map[filename_prefix]));
         ON_CALL(*mock_request_logger, CreateLogMessage(_, _, _, _))
             .WillByDefault(Invoke([&](const google::protobuf::Message& actual_request,
                                       const google::protobuf::Message& actual_response,
@@ -503,9 +637,172 @@ TEST_P(ServerCoreTest, RequestLoggingOn) {
   EXPECT_EQ(1, log_collector_map[test_util::kTestModelName]->collect_count());
 }
 
+TEST_P(ServerCoreTest, ModelSpecMultipleVersionsAvailable) {
+  ModelServerConfig two_version_config =
+      GetTestModelServerConfigForFakePlatform();
+  SwitchToHalfPlusTwoWith2Versions(&two_version_config);
+  ServerCore::Options server_core_options = GetDefaultOptions();
+  server_core_options.allow_version_labels = true;
+  std::unique_ptr<ServerCore> server_core;
+  TF_ASSERT_OK(CreateServerCore(two_version_config,
+                                std::move(server_core_options), &server_core));
+
+  // Wait until both versions of the servable have been loaded.
+  for (const int64 version :
+       {test_util::kTestModelVersion, test_util::kTestModelLargerVersion}) {
+    const auto servable_id = ServableId{test_util::kTestModelName, version};
+    test_util::WaitUntilServableManagerStateIsOneOf(
+        *server_core->servable_state_monitor(), servable_id,
+        {ServableState::ManagerState::kAvailable});
+  }
+
+  // Do not specify any version number; we should be given the latest version.
+  {
+    ModelSpec model_spec;
+    model_spec.set_name(test_util::kTestModelName);
+    ServableHandle<string> servable_handle;
+    TF_ASSERT_OK(
+        server_core->GetServableHandle<string>(model_spec, &servable_handle));
+    EXPECT_EQ(
+        (ServableId{test_util::kTestModelName,
+                    test_util::kTestModelLargerVersion /* larger version */}),
+        servable_handle.id());
+  }
+
+  // Use ModelSpec::version to request a specific version number.
+  {
+    ModelSpec model_spec;
+    model_spec.set_name(test_util::kTestModelName);
+    model_spec.mutable_version()->set_value(test_util::kTestModelVersion);
+    ServableHandle<string> servable_handle;
+    TF_ASSERT_OK(
+        server_core->GetServableHandle<string>(model_spec, &servable_handle));
+    EXPECT_EQ(
+        (ServableId{test_util::kTestModelName, test_util::kTestModelVersion}),
+        servable_handle.id());
+  }
+
+  // Assign labels to the two versions of the model.
+  ASSERT_EQ(1, two_version_config.model_config_list().config().size());
+  ModelConfig* model_config =
+      two_version_config.mutable_model_config_list()->mutable_config(0);
+  (*model_config->mutable_version_labels())["A"] = test_util::kTestModelVersion;
+  (*model_config->mutable_version_labels())["B"] =
+      test_util::kTestModelLargerVersion;
+  TF_ASSERT_OK(server_core->ReloadConfig(two_version_config));
+
+  // Use ModelSpec::version_label to request the version labeled "A".
+  {
+    ModelSpec model_spec;
+    model_spec.set_name(test_util::kTestModelName);
+    model_spec.set_version_label("A");
+    ServableHandle<string> servable_handle;
+    TF_ASSERT_OK(
+        server_core->GetServableHandle<string>(model_spec, &servable_handle));
+    EXPECT_EQ(
+        (ServableId{test_util::kTestModelName, test_util::kTestModelVersion}),
+        servable_handle.id());
+  }
+
+  // Use ModelSpec::version_label to request the version labeled "B".
+  {
+    ModelSpec model_spec;
+    model_spec.set_name(test_util::kTestModelName);
+    model_spec.set_version_label("B");
+    ServableHandle<string> servable_handle;
+    TF_ASSERT_OK(
+        server_core->GetServableHandle<string>(model_spec, &servable_handle));
+    EXPECT_EQ((ServableId{test_util::kTestModelName,
+                          test_util::kTestModelLargerVersion}),
+              servable_handle.id());
+  }
+
+  // Use ModelSpec::version_label to request a nonexistent label.
+  {
+    ModelSpec model_spec;
+    model_spec.set_name(test_util::kTestModelName);
+    model_spec.set_version_label("nonexistent label");
+    ServableHandle<string> servable_handle;
+    Status status =
+        server_core->GetServableHandle<string>(model_spec, &servable_handle);
+    ASSERT_FALSE(status.ok());
+    EXPECT_THAT(status.ToString(),
+                ::testing::HasSubstr("Unrecognized servable version label"));
+  }
+}
+
+TEST_P(ServerCoreTest, AssignLabelToUnavailableVersion) {
+  ModelServerConfig two_version_config =
+      GetTestModelServerConfigForFakePlatform();
+  SwitchToHalfPlusTwoWith2Versions(&two_version_config);
+  ServerCore::Options server_core_options = GetDefaultOptions();
+  server_core_options.allow_version_labels = true;
+  std::unique_ptr<ServerCore> server_core;
+  TF_ASSERT_OK(CreateServerCore(two_version_config,
+                                std::move(server_core_options), &server_core));
+
+  const std::set<int64> aspired_versions = {test_util::kTestModelVersion,
+                                            test_util::kTestModelLargerVersion};
+  const int64 bogus_version = 777;
+  for (const int64 aspired_version : aspired_versions) {
+    ASSERT_NE(bogus_version, aspired_version);
+  }
+
+  // Wait until both aspired versions of the servable have been loaded.
+  for (const int64 aspired_version : aspired_versions) {
+    const auto servable_id =
+        ServableId{test_util::kTestModelName, aspired_version};
+    test_util::WaitUntilServableManagerStateIsOneOf(
+        *server_core->servable_state_monitor(), servable_id,
+        {ServableState::ManagerState::kAvailable});
+  }
+
+  // Attempt to assign a label to a version that isn't one of the loaded ones.
+  ASSERT_EQ(1, two_version_config.model_config_list().config().size());
+  ModelConfig* model_config =
+      two_version_config.mutable_model_config_list()->mutable_config(0);
+  (*model_config->mutable_version_labels())["nice try"] = bogus_version;
+  Status status = server_core->ReloadConfig(two_version_config);
+  ASSERT_FALSE(status.ok());
+  EXPECT_THAT(status.ToString(),
+              ::testing::HasSubstr("not currently available for inference"));
+}
+
+TEST_P(ServerCoreTest, VersionLabelsNotAllowed) {
+  ServerCore::Options server_core_options = GetDefaultOptions();
+  server_core_options.allow_version_labels = false;
+  ModelServerConfig config = GetTestModelServerConfigForFakePlatform();
+  std::unique_ptr<ServerCore> server_core;
+  TF_ASSERT_OK(
+      CreateServerCore(config, std::move(server_core_options), &server_core));
+  const auto servable_id =
+      ServableId{test_util::kTestModelName, test_util::kTestModelVersion};
+  test_util::WaitUntilServableManagerStateIsOneOf(
+      *server_core->servable_state_monitor(), servable_id,
+      {ServableState::ManagerState::kAvailable});
+
+  ASSERT_EQ(1, config.model_config_list().config().size());
+  ModelConfig* model_config =
+      config.mutable_model_config_list()->mutable_config(0);
+  (*model_config->mutable_version_labels())["A"] = test_util::kTestModelVersion;
+  Status status = server_core->ReloadConfig(config);
+  ASSERT_FALSE(status.ok());
+  EXPECT_THAT(
+      status.ToString(),
+      ::testing::HasSubstr("Model version labels are not currently allowed"));
+}
+
 INSTANTIATE_TEST_CASE_P(
     TestType, ServerCoreTest,
-    ::testing::Range(0, static_cast<int>(ServerCoreTest::NUM_TEST_TYPES)));
+    ::testing::Combine(
+        ::testing::Range(0, static_cast<int>(ServerCoreTest::NUM_TEST_TYPES)),
+        ::testing::Bool()));
+
+INSTANTIATE_TEST_CASE_P(
+    TestType, RelativePathsServerCoreTest,
+    ::testing::Combine(
+        ::testing::Range(0, static_cast<int>(ServerCoreTest::NUM_TEST_TYPES)),
+        ::testing::Bool()));
 
 }  // namespace
 }  // namespace serving

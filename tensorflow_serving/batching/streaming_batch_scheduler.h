@@ -23,7 +23,7 @@ limitations under the License.
 #include <string>
 #include <utility>
 
-#include "tensorflow/contrib/batching/batch_scheduler.h"
+#include "tensorflow/core/kernels/batching_util/batch_scheduler.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/notification.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -170,6 +170,8 @@ class StreamingBatchScheduler : public BatchScheduler<TaskType> {
   // Scheduling capacity is based purely on threads that can accept tasks
   // immediately (there is no queueing).
   size_t SchedulingCapacity() const override;
+
+  size_t max_task_size() const override { return options_.max_batch_size; }
 
  private:
   StreamingBatchScheduler(const Options& options,

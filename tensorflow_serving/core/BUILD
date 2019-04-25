@@ -87,6 +87,7 @@ cc_library(
     deps = [
         ":loader",
         ":source_adapter",
+        "//tensorflow_serving/resources:resource_util",
         "//tensorflow_serving/resources:resource_values",
         "//tensorflow_serving/util:any_ptr",
         "//tensorflow_serving/util:optional",
@@ -204,7 +205,6 @@ cc_library(
     deps = [
         ":source_router",
         "@org_tensorflow//tensorflow/core:lib",
-        "@org_tensorflow//tensorflow/core:tensorflow",
     ],
 )
 
@@ -402,7 +402,7 @@ cc_test(
     deps = [
         ":servable_state_monitor",
         "//tensorflow_serving/core/test_util:test_main",
-        "@org_tensorflow//tensorflow/contrib/batching/test_util:fake_clock_env",
+        "@org_tensorflow//tensorflow/core/kernels/batching_util:fake_clock_env",
     ],
 )
 
@@ -500,9 +500,10 @@ cc_library(
         ":source",
         ":target",
         "//tensorflow_serving/util:event_bus",
+        "//tensorflow_serving/util:observer",
         "//tensorflow_serving/util:optional",
-        "@org_tensorflow//tensorflow/contrib/batching/util:periodic_function",
         "@org_tensorflow//tensorflow/core:lib",
+        "@org_tensorflow//tensorflow/core/kernels/batching_util:periodic_function_dynamic",
     ],
 )
 
@@ -698,7 +699,12 @@ cc_library(
     ],
     deps = [
         ":aspired_versions_manager",
+        ":loader",
+        ":manager",
+        ":servable_state",
         ":servable_state_monitor",
+        ":source",
+        ":target",
         "@org_tensorflow//tensorflow/core:lib",
     ],
 )
@@ -726,18 +732,31 @@ cc_test(
 )
 
 load("//tensorflow_serving:serving.bzl", "serving_proto_library")
+load("//tensorflow_serving:serving.bzl", "serving_proto_library_py")
 
 serving_proto_library(
     name = "logging_proto",
     srcs = ["logging.proto"],
     cc_api_version = 2,
-    go_api_version = 2,
     visibility = [
         "//visibility:public",
     ],
     deps = [
         "//tensorflow_serving/apis:model_proto",
         "//tensorflow_serving/config:logging_config_proto",
+    ],
+)
+
+serving_proto_library_py(
+    name = "logging_proto_py_pb2",
+    srcs = ["logging.proto"],
+    proto_library = "logging_proto",
+    visibility = [
+        "//visibility:public",
+    ],
+    deps = [
+        "//tensorflow_serving/apis:model_proto_py_pb2",
+        "//tensorflow_serving/config:logging_config_proto_py_pb2",
     ],
 )
 
@@ -753,7 +772,7 @@ cc_library(
         ":logging_proto",
         "//tensorflow_serving/config:logging_config_proto",
         "@org_tensorflow//tensorflow/core:lib",
-        "@protobuf//:protobuf",
+        "@protobuf_archive//:protobuf",
     ],
 )
 
@@ -772,8 +791,9 @@ cc_test(
         "//tensorflow_serving/core/test_util:mock_request_logger",
         "//tensorflow_serving/core/test_util:test_main",
         "//tensorflow_serving/test_util",
+        "@org_tensorflow//tensorflow/cc/saved_model:tag_constants",
         "@org_tensorflow//tensorflow/core:lib",
-        "@protobuf//:protobuf",
+        "@protobuf_archive//:protobuf",
     ],
 )
 
@@ -791,7 +811,7 @@ cc_library(
         "//tensorflow_serving/core:logging_proto",
         "//tensorflow_serving/util:fast_read_dynamic_ptr",
         "@org_tensorflow//tensorflow/core:lib",
-        "@protobuf//:protobuf",
+        "@protobuf_archive//:protobuf",
     ],
 )
 
@@ -805,12 +825,17 @@ cc_test(
         ":server_request_logger",
         "//tensorflow_serving/apis:model_proto",
         "//tensorflow_serving/apis:predict_proto",
+        "//tensorflow_serving/config:log_collector_config_proto",
         "//tensorflow_serving/config:logging_config_proto",
         "//tensorflow_serving/core/test_util:fake_log_collector",
         "//tensorflow_serving/core/test_util:mock_request_logger",
         "//tensorflow_serving/core/test_util:test_main",
         "//tensorflow_serving/test_util",
+        "@com_google_absl//absl/strings",
+        "@org_tensorflow//tensorflow/cc/saved_model:tag_constants",
         "@org_tensorflow//tensorflow/core:lib",
-        "@protobuf//:protobuf",
+        "@org_tensorflow//tensorflow/core:test",
+        "@protobuf_archive//:cc_wkt_protos",
+        "@protobuf_archive//:protobuf",
     ],
 )

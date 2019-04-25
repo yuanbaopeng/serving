@@ -50,7 +50,6 @@ namespace {
 
 constexpr char kTestModelName[] = "test_model";
 constexpr int kTestModelVersion = 123;
-const string kSignatureDef = "signature_def";
 
 class GetModelMetadataImplTest : public ::testing::TestWithParam<bool> {
  public:
@@ -143,7 +142,7 @@ TEST_P(GetModelMetadataImplTest, MissingOrEmptyModelSpec) {
   GetModelMetadataRequest request;
   GetModelMetadataResponse response;
 
-  request.add_metadata_field(kSignatureDef);
+  request.add_metadata_field(GetModelMetadataImpl::kSignatureDef);
   EXPECT_EQ(tensorflow::error::INVALID_ARGUMENT,
             GetModelMetadataImpl::GetModelMetadata(GetServerCore(), request,
                                                    &response)
@@ -173,7 +172,7 @@ TEST_P(GetModelMetadataImplTest, ReturnsSignaturesForValidModel) {
   ModelSpec* model_spec = request.mutable_model_spec();
   model_spec->set_name(kTestModelName);
   model_spec->mutable_version()->set_value(kTestModelVersion);
-  request.add_metadata_field(kSignatureDef);
+  request.add_metadata_field(GetModelMetadataImpl::kSignatureDef);
 
   TF_EXPECT_OK(GetModelMetadataImpl::GetModelMetadata(GetServerCore(), request,
                                                       &response));
@@ -181,7 +180,9 @@ TEST_P(GetModelMetadataImplTest, ReturnsSignaturesForValidModel) {
               test_util::EqualsProto(request.model_spec()));
   EXPECT_EQ(response.metadata_size(), 1);
   SignatureDefMap received_signature_def_map;
-  response.metadata().at(kSignatureDef).UnpackTo(&received_signature_def_map);
+  response.metadata()
+      .at(GetModelMetadataImpl::kSignatureDef)
+      .UnpackTo(&received_signature_def_map);
 
   SignatureDefMap expected_signature_def_map =
       GetSignatureDefMap(GetServerCore(), request.model_spec());
@@ -205,6 +206,28 @@ TEST_P(GetModelMetadataImplTest, ReturnsSignaturesForValidModel) {
           kDefaultServingSignatureDefKey),
       test_util::EqualsProto(received_signature_def_map.signature_def().at(
           kDefaultServingSignatureDefKey)));
+}
+
+// Verifies that GetModelMetadataWithModelSpec() uses the model spec override
+// rather than the one in the request.
+TEST_P(GetModelMetadataImplTest, ModelSpecOverride) {
+  auto request = test_util::CreateProto<GetModelMetadataRequest>(
+      "model_spec {"
+      "  name: \"test_model\""
+      "}");
+  request.add_metadata_field(GetModelMetadataImpl::kSignatureDef);
+  auto model_spec_override =
+      test_util::CreateProto<ModelSpec>("name: \"nonexistent_model\"");
+
+  GetModelMetadataResponse response;
+  EXPECT_NE(tensorflow::error::NOT_FOUND,
+            GetModelMetadataImpl::GetModelMetadata(GetServerCore(), request,
+                                                   &response)
+                .code());
+  EXPECT_EQ(tensorflow::error::NOT_FOUND,
+            GetModelMetadataImpl::GetModelMetadataWithModelSpec(
+                GetServerCore(), model_spec_override, request, &response)
+                .code());
 }
 
 // Test all ClassifierTest test cases with both SessionBundle and SavedModel.

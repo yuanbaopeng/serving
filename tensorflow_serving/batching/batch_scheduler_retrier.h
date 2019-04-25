@@ -21,7 +21,7 @@ limitations under the License.
 #include <memory>
 #include <utility>
 
-#include "tensorflow/contrib/batching/batch_scheduler.h"
+#include "tensorflow/core/kernels/batching_util/batch_scheduler.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/env.h"
 #include "tensorflow/core/platform/macros.h"
@@ -56,6 +56,8 @@ class BatchSchedulerRetrier : public BatchScheduler<TaskType> {
   Status Schedule(std::unique_ptr<TaskType>* task) override;
   size_t NumEnqueuedTasks() const override;
   size_t SchedulingCapacity() const override;
+
+  size_t max_task_size() const override { return wrapped_->max_task_size(); }
 
  private:
   BatchSchedulerRetrier(const Options& options,

@@ -24,8 +24,8 @@ cc_library(
     hdrs = ["puppet_batch_scheduler.h"],
     visibility = ["//visibility:private"],
     deps = [
-        "@org_tensorflow//tensorflow/contrib/batching:batch_scheduler",
         "@org_tensorflow//tensorflow/core:tensorflow",
+        "@org_tensorflow//tensorflow/core/kernels/batching_util:batch_scheduler",
     ],
 )
 
@@ -40,4 +40,13 @@ cc_test(
         "@org_tensorflow//tensorflow/core:lib",
         "@org_tensorflow//tensorflow/core:test",
     ],
+)
+
+# script that generates saved_model for matrix_half_plus_two model.
+py_binary(
+    name = "matrix_half_plus_two_saved_model",
+    srcs = ["matrix_half_plus_two_saved_model.py"],
+    python_version = "PY2",
+    srcs_version = "PY2AND3",
+    deps = ["@org_tensorflow//tensorflow:tensorflow_py"],
 )

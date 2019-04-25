@@ -22,6 +22,7 @@ limitations under the License.
 #include "tensorflow_serving/apis/regressor.h"
 #include "tensorflow_serving/core/servable_handle.h"
 #include "tensorflow_serving/servables/tensorflow/regressor.h"
+#include "tensorflow_serving/servables/tensorflow/util.h"
 
 namespace tensorflow {
 namespace serving {
@@ -29,26 +30,27 @@ namespace serving {
 Status TensorflowRegressionServiceImpl::Regress(
     const RunOptions& run_options, ServerCore* core,
     const RegressionRequest& request, RegressionResponse* response) {
-  TRACELITERAL("TensorflowRegressionServiceImpl::Regress");
   // Verify Request Metadata and create a ServableRequest
   if (!request.has_model_spec()) {
     return tensorflow::Status(tensorflow::error::INVALID_ARGUMENT,
                               "Missing ModelSpec");
   }
 
-  ServableHandle<SavedModelBundle> saved_model_bundle;
-  TF_RETURN_IF_ERROR(
-      core->GetServableHandle(request.model_spec(), &saved_model_bundle));
-  SignatureDef signature;
-  TF_RETURN_IF_ERROR(GetRegressionSignatureDef(
-      request.model_spec(), saved_model_bundle->meta_graph_def, &signature));
+  return RegressWithModelSpec(run_options, core, request.model_spec(), request,
+                              response);
+}
 
-  std::unique_ptr<RegressorInterface> regressor_interface;
-  TF_RETURN_IF_ERROR(CreateFlyweightTensorFlowRegressor(
-      run_options, saved_model_bundle->session.get(), &signature,
-      &regressor_interface));
-  // Run regression
-  return regressor_interface->Regress(request, response->mutable_result());
+Status TensorflowRegressionServiceImpl::RegressWithModelSpec(
+    const RunOptions& run_options, ServerCore* core,
+    const ModelSpec& model_spec, const RegressionRequest& request,
+    RegressionResponse* response) {
+  TRACELITERAL("TensorflowRegressionServiceImpl::RegressWithModelSpec");
+
+  ServableHandle<SavedModelBundle> saved_model_bundle;
+  TF_RETURN_IF_ERROR(core->GetServableHandle(model_spec, &saved_model_bundle));
+  return RunRegress(run_options, saved_model_bundle->meta_graph_def,
+                    saved_model_bundle.id().version,
+                    saved_model_bundle->session.get(), request, response);
 }
 
 }  // namespace serving

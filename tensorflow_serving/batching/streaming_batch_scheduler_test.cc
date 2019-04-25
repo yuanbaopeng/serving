@@ -19,7 +19,7 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include "tensorflow/contrib/batching/test_util/fake_clock_env.h"
+#include "tensorflow/core/kernels/batching_util/fake_clock_env.h"
 #include "tensorflow/core/lib/core/error_codes.pb.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
 #include "tensorflow/core/platform/macros.h"
@@ -276,6 +276,8 @@ TEST(StreamingBatchSchedulerTest, ConstMethods) {
     std::unique_ptr<StreamingBatchScheduler<FakeTask>> scheduler;
     TF_ASSERT_OK(StreamingBatchScheduler<FakeTask>::Create(options, callback,
                                                            &scheduler));
+
+    EXPECT_EQ(2, scheduler->max_task_size());
 
     // Submit 'num_threads' full batches, to make the scheduling threads "full".
     // (At all times, the queue length should show as 0, since

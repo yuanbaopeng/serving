@@ -24,7 +24,7 @@ limitations under the License.
 #include <queue>
 #include <utility>
 
-#include "tensorflow/contrib/batching/batch_scheduler.h"
+#include "tensorflow/core/kernels/batching_util/batch_scheduler.h"
 
 namespace tensorflow {
 namespace serving {
@@ -58,6 +58,10 @@ class PuppetBatchScheduler : public BatchScheduler<TaskType> {
 
   // Processes all enqueued tasks.
   void ProcessAllTasks();
+
+  size_t max_task_size() const override {
+    return std::numeric_limits<size_t>::max();
+  }
 
  private:
   std::function<void(std::unique_ptr<Batch<TaskType>>)> process_batch_callback_;

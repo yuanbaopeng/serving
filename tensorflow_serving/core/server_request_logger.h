@@ -21,6 +21,7 @@ limitations under the License.
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "google/protobuf/message.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -38,44 +39,68 @@ namespace serving {
 // sampling config.
 class ServerRequestLogger {
  public:
+  using LoggerCreator = std::function<Status(
+      const LoggingConfig& logging_config, std::unique_ptr<RequestLogger>*)>;
   // Creates the ServerRequestLogger based on a custom request_logger_creator
   // method.
   //
   // You can create an empty ServerRequestLogger with an empty
   // request_logger_creator.
   static Status Create(
-      const std::function<Status(const LoggingConfig& logging_config,
-                                 std::unique_ptr<RequestLogger>*)>&
-          request_logger_creator,
+      LoggerCreator request_logger_creator,
       std::unique_ptr<ServerRequestLogger>* server_request_logger);
 
-  ~ServerRequestLogger() = default;
+  virtual ~ServerRequestLogger() = default;
 
   // Updates the logger with the new 'logging_config_map'.
   //
   // If the ServerRequestLogger was created using an empty
   // request_logger_creator, this will return an error if a non-empty
   // logging_config_map is passed in.
-  Status Update(const std::map<string, LoggingConfig>& logging_config_map);
+  virtual Status Update(
+      const std::map<string, std::vector<LoggingConfig>>& logging_config_map);
 
   // Similar to RequestLogger::Log().
-  Status Log(const google::protobuf::Message& request, const google::protobuf::Message& response,
-             const LogMetadata& log_metadata);
+  //
+  // If request is logged/written to multiple sinks, we return error from
+  // the first failed write (and continue attempting to write to all).
+  virtual Status Log(const google::protobuf::Message& request,
+                     const google::protobuf::Message& response,
+                     const LogMetadata& log_metadata);
+
+ protected:
+  explicit ServerRequestLogger(LoggerCreator request_logger_creator);
 
  private:
-  explicit ServerRequestLogger(
-      const std::function<Status(const LoggingConfig& logging_config,
-                                 std::unique_ptr<RequestLogger>*)>&
-          request_logger_creator);
-
-  // A map from model_name to its corresponding RequestLogger.
-  using RequestLoggerMap =
+  using StringToRequestLoggersMap =
+      std::unordered_map<string, std::vector<RequestLogger*>>;
+  using StringToUniqueRequestLoggerMap =
       std::unordered_map<string, std::unique_ptr<RequestLogger>>;
-  FastReadDynamicPtr<RequestLoggerMap> request_logger_map_;
 
-  std::function<Status(const LoggingConfig& logging_config,
-                       std::unique_ptr<RequestLogger>*)>
-      request_logger_creator_;
+  // Find a logger for config in either config_to_logger_map_ or
+  // new_config_to_logger_map. If the logger was found in
+  // config_to_logger_map_ move it to new_config_to_logger_map and erase the
+  // entry from config_to_logger_map_. If such a logger does not exist,
+  // create a new logger and insert it into new_config_to_logger_map. Return the
+  // logger in result.
+  Status FindOrCreateLogger(
+      const LoggingConfig& config,
+      StringToUniqueRequestLoggerMap* new_config_to_logger_map,
+      RequestLogger** result);
+
+  // Mutex to ensure concurrent calls to Update() are serialized.
+  mutable mutex update_mu_;
+  // A map from serialized model logging config to its corresponding
+  // RequestLogger. If two models have the same logging config, they
+  // will share the RequestLogger.
+  // This is only used during calls to Update().
+  StringToUniqueRequestLoggerMap config_to_logger_map_;
+
+  // A map from model_name to its corresponding RequestLoggers.
+  // The RequestLoggers are owned by config_to_logger_map_.
+  FastReadDynamicPtr<StringToRequestLoggersMap> model_to_loggers_map_;
+
+  LoggerCreator request_logger_creator_;
 };
 
 }  // namespace serving

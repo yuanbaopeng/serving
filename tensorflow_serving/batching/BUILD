@@ -26,8 +26,8 @@ cc_library(
     deps = [
         ":batch_scheduler_retrier",
         "//tensorflow_serving/util:optional",
-        "@org_tensorflow//tensorflow/contrib/batching:batch_scheduler",
         "@org_tensorflow//tensorflow/core:lib",
+        "@org_tensorflow//tensorflow/core/kernels/batching_util:batch_scheduler",
     ],
 )
 
@@ -39,10 +39,10 @@ cc_test(
     deps = [
         ":streaming_batch_scheduler",
         "//tensorflow_serving/core/test_util:test_main",
-        "@org_tensorflow//tensorflow/contrib/batching/test_util:fake_clock_env",
         "@org_tensorflow//tensorflow/core:lib",
         "@org_tensorflow//tensorflow/core:protos_all_cc",
         "@org_tensorflow//tensorflow/core:test",
+        "@org_tensorflow//tensorflow/core/kernels/batching_util:fake_clock_env",
     ],
 )
 
@@ -54,15 +54,17 @@ cc_library(
         "//visibility:public",
     ],
     deps = [
+        "//tensorflow_serving/batching:batching_util",
         "//tensorflow_serving/servables/tensorflow:serving_session",
         "//tensorflow_serving/util:cleanup",
         "//tensorflow_serving/util:hash",
-        "@org_tensorflow//tensorflow/contrib/batching:basic_batch_scheduler",
-        "@org_tensorflow//tensorflow/contrib/batching:batch_scheduler",
+        "//tensorflow_serving/util:optional",
         "@org_tensorflow//tensorflow/core:core_cpu",
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",
         "@org_tensorflow//tensorflow/core:tensorflow",
+        "@org_tensorflow//tensorflow/core/kernels/batching_util:basic_batch_scheduler",
+        "@org_tensorflow//tensorflow/core/kernels/batching_util:batch_scheduler",
     ],
 )
 
@@ -72,6 +74,7 @@ cc_test(
         "batching_session_test.cc",
     ],
     data = [
+        "//tensorflow_serving/batching/testdata:matrix_half_plus_two",
         "@org_tensorflow//tensorflow/cc/saved_model:saved_model_half_plus_two",
     ],
     deps = [
@@ -95,8 +98,8 @@ cc_library(
     hdrs = ["batch_scheduler_retrier.h"],
     visibility = ["//visibility:public"],
     deps = [
-        "@org_tensorflow//tensorflow/contrib/batching:batch_scheduler",
         "@org_tensorflow//tensorflow/core:lib",
+        "@org_tensorflow//tensorflow/core/kernels/batching_util:batch_scheduler",
     ],
 )
 
@@ -108,9 +111,33 @@ cc_test(
     deps = [
         ":batch_scheduler_retrier",
         "//tensorflow_serving/core/test_util:test_main",
-        "@org_tensorflow//tensorflow/contrib/batching/test_util:fake_clock_env",
         "@org_tensorflow//tensorflow/core:lib",
         "@org_tensorflow//tensorflow/core:protos_all_cc",
         "@org_tensorflow//tensorflow/core:test",
+        "@org_tensorflow//tensorflow/core/kernels/batching_util:fake_clock_env",
+    ],
+)
+
+cc_library(
+    name = "batching_util",
+    srcs = ["batching_util.cc"],
+    hdrs = ["batching_util.h"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+        "@org_tensorflow//tensorflow/core:lib",
+    ],
+)
+
+cc_test(
+    name = "batching_util_test",
+    srcs = [
+        "batching_util_test.cc",
+    ],
+    deps = [
+        ":batching_util",
+        "//tensorflow_serving/core/test_util:test_main",
+        "@org_tensorflow//tensorflow/core:framework",
+        "@org_tensorflow//tensorflow/core:lib",
+        "@org_tensorflow//tensorflow/core:protos_all_cc",
     ],
 )

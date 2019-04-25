@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef TENSORFLOW_SERVING_SERVABLES_TENSORFLOW_PREDICT_IMPL_H_
 #define TENSORFLOW_SERVING_SERVABLES_TENSORFLOW_PREDICT_IMPL_H_
 
+#include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/protobuf/config.pb.h"
 #include "tensorflow_serving/apis/predict.pb.h"
@@ -32,6 +33,13 @@ class TensorflowPredictor {
 
   Status Predict(const RunOptions& run_options, ServerCore* core,
                  const PredictRequest& request, PredictResponse* response);
+
+  // Like Predict(), but uses 'model_spec' instead of the one embedded in
+  // 'request'.
+  Status PredictWithModelSpec(const RunOptions& run_options, ServerCore* core,
+                              const ModelSpec& model_spec,
+                              const PredictRequest& request,
+                              PredictResponse* response);
 
  private:
   // If use_saved_model_ is true, a SavedModelBundle handle will be retrieved

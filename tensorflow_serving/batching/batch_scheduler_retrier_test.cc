@@ -18,7 +18,7 @@ limitations under the License.
 #include <limits>
 
 #include <gtest/gtest.h>
-#include "tensorflow/contrib/batching/test_util/fake_clock_env.h"
+#include "tensorflow/core/kernels/batching_util/fake_clock_env.h"
 #include "tensorflow/core/lib/core/error_codes.pb.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/notification.h"
@@ -58,6 +58,8 @@ class BrokenScheduler : public BatchScheduler<FakeTask> {
 
   int num_submit_calls() const { return num_submit_calls_; }
 
+  size_t max_task_size() const override { return 1000; }
+
  private:
   int num_submit_calls_ = 0;
 
@@ -90,6 +92,8 @@ class StubbornScheduler : public BatchScheduler<FakeTask> {
     return std::numeric_limits<size_t>::max();
   }
 
+  size_t max_task_size() const override { return 1000; }
+
   int num_attempts() const { return num_attempts_; }
 
  private:
@@ -105,6 +109,7 @@ TEST(BatchSchedulerRetrierTest, ConstMethodsForwardToWrappedScheduler) {
   std::unique_ptr<BatchSchedulerRetrier<FakeTask>> retrier;
   TF_CHECK_OK(BatchSchedulerRetrier<FakeTask>::Create(
       options, std::move(broken_scheduler), &retrier));
+  EXPECT_EQ(1000, retrier->max_task_size());
   EXPECT_EQ(7, retrier->NumEnqueuedTasks());
   EXPECT_EQ(42, retrier->SchedulingCapacity());
 }
